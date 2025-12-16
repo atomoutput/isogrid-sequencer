@@ -32,7 +32,7 @@ source.include_exts = py,png,jpg,kv,atlas
 version = 0.1
 
 # (list) Application requirements
-requirements = python3, kivy, pyjnius
+requirements = python3, kivy==2.3.0, pyjnius, android
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
