@@ -21,25 +21,87 @@ The application consists of:
 
 ## Setup for GitHub Actions (APK Building)
 
-The project is configured for automated APK building via GitHub Actions, however there's a special requirement for adding the workflow file:
+The project is configured for automated APK building via GitHub Actions. To enable this:
 
 1. After cloning this repository, you need to manually add the GitHub Actions workflow file to enable automated building
 2. Go to your repository on GitHub: `https://github.com/atomoutput/isogrid-sequencer`
 3. Navigate to `.github/workflows/` directory (create it if it doesn't exist)
 4. Create a new file named `build.yml`
-5. Copy the content from `github-actions-workflow.yml` in this repository into that file
+5. Copy the following content into that file:
+
+```yaml
+name: Build Android APK
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: kivy/buildozer:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          apt-get update
+          apt-get install -y python3-pip
+
+      - name: Build with Buildozer
+        run: |
+          cd /github/workspace
+          buildozer android debug
+        env:
+          P4A_LOCAL_DIRECTORY: /github/workspace/.buildozer
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: isogrid-sequencer-apk
+          path: bin/*.apk
+```
+
 6. Commit the file directly to your repository
 
 Once the workflow file is added, GitHub Actions will automatically build the APK for each push to the repository.
 
 ## Building for Android
 
-After setting up the GitHub Actions workflow, the project uses Buildozer to package the application for Android. The build process runs automatically via GitHub Actions when changes are pushed to the repository.
+### Local Building
+To build locally, you need to install Buildozer first:
+```bash
+pip install buildozer
+```
 
-To build locally, install Buildozer and run:
+Then run:
 ```bash
 buildozer android debug
 ```
+
+### Requirements
+- Python 3.8+
+- Buildozer
+- Docker (for local testing)
+
+## Local Development Setup
+
+To run the Isogrid Sequencer locally in development mode:
+
+1. Install dependencies:
+```bash
+pip install kivy pyjnius
+```
+
+2. Run the application:
+```bash
+python main.py
+```
+
+The application will run in mock mode, simulating MIDI output to the console without requiring actual MIDI hardware.
 
 ## License
 
