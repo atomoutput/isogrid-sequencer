@@ -8,10 +8,46 @@ from kivy.uix.button import Button
 from kivy.uix.popup import Popup
 from kivy.uix.slider import Slider
 from kivy.uix.spinner import Spinner
+from kivy.uix.gridlayout import GridLayout
 from kivy.clock import Clock
 from kivy.graphics import Color, Line
 import time
+import random
 from midi_manager import MidiDriver
+
+def euclidean_rhythm(steps, pulses):
+    """Generate an Euclidean rhythm pattern"""
+    if pulses > steps or pulses < 0:
+        return [True] * steps  # Return all active if invalid
+
+    pattern = [0] * steps
+    if pulses == 0:
+        return pattern
+
+    counts = [1] * pulses
+    remainders = [steps % pulses] * (steps % pulses) + [0] * (pulses - steps % pulses)
+
+    divisor = steps // pulses
+    j = 0
+    while True:
+        if sum(remainders) == 0:
+            break
+        counts = remainders + counts[:-len(remainders)]
+        remainders = counts[:divisor] * (len(remainders) // divisor) + counts[:len(remainders) % divisor]
+
+    pattern = []
+    for count in counts:
+        pattern.extend([1] + [0] * (count - 1))
+
+    # Trim to correct length
+    pattern = pattern[:steps]
+    pattern = [bool(x) for x in pattern]
+
+    # Pad with False if needed
+    while len(pattern) < steps:
+        pattern.append(False)
+
+    return pattern
 
 class SequencerApp(App):
     def build(self):
@@ -59,10 +95,12 @@ class SequencerApp(App):
                 color=(0.5, 0.8, 0.8, 1),  # Cyan text highlight
                 font_size=14
             )
-            # Bind long press to show step settings popup
+            # Store the step index in the button for later use
+            btn.step_idx = i
+            # Bind press events to track timing for long press
             btn.bind(
-                on_press=lambda btn, idx=i: self.on_step_press(idx),
-                on_release=lambda btn, idx=i: self.on_step_release(idx)
+                on_press=self.on_step_press_with_timing,
+                on_release=self.on_step_release_with_timing
             )
             matrix_layout.add_widget(btn)
             self.matrix_steps.append(btn)
@@ -94,6 +132,20 @@ class SequencerApp(App):
             background_color=(0.8, 0.6, 0.2, 1)  # Amber
         )
 
+        # Y Driver with Logic Advance option
+        self.y_driver_spinner = Spinner(
+            text='Forward',
+            values=['Forward', 'Backward', 'Pendulum', 'Random', 'Euclidean', 'Logic Advance'],
+            background_normal='',
+            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
+        )
+        self.y_speed_spinner = Spinner(
+            text='1/16',
+            values=['1/32', '1/16', '1/8', '1/4'],
+            background_normal='',
+            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
+        )
+
         # MicroFreak CC mapping controls
         self.cc_mapping_label = Label(text='CC Mapping', color=(0.5, 0.8, 0.8, 1))
         self.x_cc_spinner = Spinner(
@@ -109,15 +161,32 @@ class SequencerApp(App):
             background_color=(0.2, 0.8, 0.8, 1)  # Cyan
         )
 
+        # Performance controls
+        self.tempo_label = Label(text='Tempo: 120 BPM', color=(0.5, 0.8, 0.8, 1))
+        self.tempo_slider = Slider(min=40, max=240, value=120, step=1)
+        self.tempo_slider.bind(value=self.on_tempo_change)
+
+        # Play controls
+        self.play_button = Button(text='PLAY', background_normal='', background_color=(0.2, 0.8, 0.2, 1))
+        self.play_button.bind(on_press=self.toggle_play_state)
+        self.is_playing = True  # Start playing by default
+
         right_panel.add_widget(Label(text='X-Driver Mode:', color=(0.8, 0.6, 0.2, 1)))
         right_panel.add_widget(self.x_driver_spinner)
         right_panel.add_widget(Label(text='X-Speed:', color=(0.8, 0.6, 0.2, 1)))
         right_panel.add_widget(self.x_speed_spinner)
+        right_panel.add_widget(Label(text='Y-Driver Mode:', color=(0.2, 0.8, 0.8, 1)))
+        right_panel.add_widget(self.y_driver_spinner)
+        right_panel.add_widget(Label(text='Y-Speed:', color=(0.2, 0.8, 0.8, 1)))
+        right_panel.add_widget(self.y_speed_spinner)
         right_panel.add_widget(self.cc_mapping_label)
         right_panel.add_widget(Label(text='X to CC:', color=(0.5, 0.8, 0.8, 1)))
         right_panel.add_widget(self.x_cc_spinner)
         right_panel.add_widget(Label(text='Y to CC:', color=(0.5, 0.8, 0.8, 1)))
         right_panel.add_widget(self.y_cc_spinner)
+        right_panel.add_widget(self.tempo_label)
+        right_panel.add_widget(self.tempo_slider)
+        right_panel.add_widget(self.play_button)
 
         # Add panels to main layout
         main_layout.add_widget(left_panel)
@@ -130,25 +199,136 @@ class SequencerApp(App):
         self.x_direction = 1
         self.y_direction = 1
         self.step_states = [False] * 16  # Track which steps are enabled
+        self.step_notes = [i % 12 + 36 for i in range(16)]  # Default note values (C2 to B3)
+        self.step_velocities = [100] * 16  # Default velocities
+        self.step_probabilities = [1.0] * 16  # Default probabilities (100%)
+        self.step_cc_values = [{} for _ in range(16)]  # CC values for each step
+        self.step_teleport_targets = [-1] * 16  # Wormhole mode targets (-1 = no teleport)
 
-        # Start Sequencer Loop
-        Clock.schedule_interval(self.tick, 0.125)  # 120 BPM default
+        # Start Sequencer Loop at 120 BPM (16th notes = 480 BPM, so interval = 60/480 = 0.125s)
+        interval = 60.0 / 120.0 / 4.0  # 120 BPM, 16th note interval
+        Clock.schedule_interval(self.tick, interval)
 
         return main_layout
 
-    def on_step_press(self, step_idx):
-        # Handle step press for toggling activation
-        self.step_states[step_idx] = not self.step_states[step_idx]
-        if self.step_states[step_idx]:
-            self.matrix_steps[step_idx].background_color = (0.5, 0.8, 0.5, 1)  # Green for active
-        else:
-            self.matrix_steps[step_idx].background_color = (0.2, 0.2, 0.2, 1)  # Back to dark gray
+    def on_step_press_with_timing(self, button):
+        # Record the time when button was pressed
+        button.press_time = time.time()
+        # Use the button's stored index
+        step_idx = button.step_idx
+        # Temporarily store the button reference to check in release
+        self.current_pressed_button = button
 
-    def on_step_release(self, step_idx):
-        # Could implement long press detection here to show settings
-        pass
+    def on_step_release_with_timing(self, button):
+        # Calculate press duration
+        press_duration = time.time() - button.press_time
+        step_idx = button.step_idx
+
+        # If press duration was long enough, show config popup
+        if press_duration > 0.5:  # 0.5 seconds for long press
+            self.show_step_config(step_idx)
+        else:
+            # Regular press: toggle activation
+            self.step_states[step_idx] = not self.step_states[step_idx]
+            if self.step_states[step_idx]:
+                self.matrix_steps[step_idx].background_color = (0.5, 0.8, 0.5, 1)  # Green for active
+            else:
+                self.matrix_steps[step_idx].background_color = (0.2, 0.2, 0.2, 1)  # Back to dark gray
+
+    def show_step_config(self, step_idx):
+        """Show the step configuration popup"""
+        layout = GridLayout(cols=2, padding=10, spacing=10)
+
+        # Note selection
+        layout.add_widget(Label(text='Note:', color=(0.5, 0.8, 0.8, 1)))
+        note_spinner = Spinner(
+            text=str(self.step_notes[step_idx]),
+            values=[str(i) for i in range(12, 120)],  # MIDI note range
+            background_normal='',
+            background_color=(0.2, 0.8, 0.8, 1)
+        )
+        layout.add_widget(note_spinner)
+
+        # Velocity slider
+        layout.add_widget(Label(text='Velocity:', color=(0.5, 0.8, 0.8, 1)))
+        velocity_slider = Slider(min=1, max=127, value=self.step_velocities[step_idx])
+        layout.add_widget(velocity_slider)
+
+        # Probability slider
+        layout.add_widget(Label(text='Probability:', color=(0.5, 0.8, 0.8, 1)))
+        prob_slider = Slider(min=0, max=1, value=self.step_probabilities[step_idx], step=0.01)
+        layout.add_widget(prob_slider)
+
+        # CC Lock controls
+        layout.add_widget(Label(text='CC Lock:', color=(0.5, 0.8, 0.8, 1)))
+        cc_lock_layout = BoxLayout(orientation='vertical')
+
+        # CC number input
+        cc_num_spinner = Spinner(
+            text=str(list(self.step_cc_values[step_idx].keys())[0]) if self.step_cc_values[step_idx] else "None",
+            values=["None"] + [str(i) for i in range(128)],  # MIDI CC range
+            background_normal='',
+            background_color=(0.2, 0.8, 0.8, 1)
+        )
+        cc_lock_layout.add_widget(cc_num_spinner)
+
+        # CC value slider
+        cc_val_slider = Slider(min=0, max=127, value=list(self.step_cc_values[step_idx].values())[0] if self.step_cc_values[step_idx] else 64)
+        cc_lock_layout.add_widget(cc_val_slider)
+
+        layout.add_widget(cc_lock_layout)
+
+        # Teleport target (for wormhole mode)
+        layout.add_widget(Label(text='Teleport to:', color=(0.5, 0.8, 0.8, 1)))
+        teleport_spinner = Spinner(
+            text=str(self.step_teleport_targets[step_idx]) if self.step_teleport_targets[step_idx] != -1 else "None",
+            values=["-1 (None)"] + [str(i) for i in range(16)],
+            background_normal='',
+            background_color=(0.2, 0.8, 0.8, 1)
+        )
+        layout.add_widget(teleport_spinner)
+
+        # Save button
+        def save_and_close(instance):
+            self.step_notes[step_idx] = int(note_spinner.text)
+            self.step_velocities[step_idx] = int(velocity_slider.value)
+            self.step_probabilities[step_idx] = prob_slider.value
+
+            # Handle CC lock values
+            if cc_num_spinner.text != "None":
+                cc_num = int(cc_num_spinner.text)
+                cc_val = int(cc_val_slider.value)
+                self.step_cc_values[step_idx] = {cc_num: cc_val}
+            else:
+                self.step_cc_values[step_idx] = {}
+
+            # Handle teleport target
+            if teleport_spinner.text == "None" or teleport_spinner.text == "-1 (None)":
+                self.step_teleport_targets[step_idx] = -1
+            else:
+                self.step_teleport_targets[step_idx] = int(teleport_spinner.text)
+
+            # Update button text to show note value
+            self.matrix_steps[step_idx].text = str(self.step_notes[step_idx])
+            popup.dismiss()
+
+        save_btn = Button(text='Save', background_normal='', background_color=(0.8, 0.6, 0.2, 1))
+        save_btn.bind(on_press=save_and_close)
+        layout.add_widget(save_btn)
+
+        # Cancel button
+        cancel_btn = Button(text='Cancel', background_normal='', background_color=(0.8, 0.2, 0.2, 1))
+        cancel_btn.bind(on_press=lambda x: popup.dismiss())
+        layout.add_widget(cancel_btn)
+
+        popup = Popup(title=f'Step {step_idx} Configuration', content=layout, size_hint=(0.8, 0.8))
+        popup.open()
 
     def tick(self, dt):
+        # Only update if playing
+        if not self.is_playing:
+            return
+
         # Update X position based on X driver logic
         self.update_x_position()
 
@@ -158,6 +338,14 @@ class SequencerApp(App):
         # Calculate the active step index
         active_step_index = (self.current_y * 4) + self.current_x
 
+        # Check for wormhole teleportation
+        if self.step_teleport_targets[active_step_index] != -1:
+            # Teleport to the target step immediately
+            active_step_index = self.step_teleport_targets[active_step_index]
+            # Update current X and Y based on new step index
+            self.current_x = active_step_index % 4
+            self.current_y = active_step_index // 4
+
         # Visual feedback for active position
         self.visualize_active_position()
 
@@ -166,14 +354,24 @@ class SequencerApp(App):
 
         # Play the note at the intersection if step is enabled
         if self.step_states[active_step_index]:
-            self.play_note_at_intersection(active_step_index)
+            # Check probability - if random value is higher than step probability, skip
+            if random.random() <= self.step_probabilities[active_step_index]:
+                self.play_note_at_intersection(active_step_index)
 
     def update_x_position(self):
-        speed_map = {'1/32': 0.25, '1/16': 0.5, '1/8': 1, '1/4': 2}
-        speed_factor = speed_map[self.x_speed_spinner.text]
+        # Handle Euclidean rhythm for X axis
+        if self.x_driver_spinner.text == 'Euclidean':
+            # Generate Euclidean rhythm pattern based on current settings
+            self.euclidean_x_steps = getattr(self, 'euclidean_x_steps', euclidean_rhythm(4, 2))  # Default 4 steps, 2 pulses
+            self.euclidean_x_index = getattr(self, 'euclidean_x_index', 0)
 
-        # Simple forward movement for now - will expand to include all modes
-        if self.x_driver_spinner.text == 'Forward':
+            if self.euclidean_x_steps[self.euclidean_x_index]:
+                # Only move if this step is active in the Euclidean pattern
+                self.current_x = (self.current_x + 1) % 4
+            self.euclidean_x_index = (self.euclidean_x_index + 1) % len(self.euclidean_x_steps)
+        elif self.x_driver_spinner.text == 'Random':
+            self.current_x = random.randint(0, 3)
+        elif self.x_driver_spinner.text == 'Forward':
             self.current_x = (self.current_x + 1) % 4
         elif self.x_driver_spinner.text == 'Backward':
             self.current_x = (self.current_x - 1) % 4
@@ -189,11 +387,19 @@ class SequencerApp(App):
                 self.current_x = 3
 
     def update_y_position(self):
-        speed_map = {'1/32': 0.25, '1/16': 0.5, '1/8': 1, '1/4': 2}
-        speed_factor = speed_map[self.y_speed_spinner.text]
+        # Handle Euclidean rhythm for Y axis
+        if self.y_driver_spinner.text == 'Euclidean':
+            # Generate Euclidean rhythm pattern based on current settings
+            self.euclidean_y_steps = getattr(self, 'euclidean_y_steps', euclidean_rhythm(4, 3))  # Default 4 steps, 3 pulses
+            self.euclidean_y_index = getattr(self, 'euclidean_y_index', 0)
 
-        # Simple forward movement for now - will expand to include all modes
-        if self.y_driver_spinner.text == 'Forward':
+            if self.euclidean_y_steps[self.euclidean_y_index]:
+                # Only move if this step is active in the Euclidean pattern
+                self.current_y = (self.current_y + 1) % 4
+            self.euclidean_y_index = (self.euclidean_y_index + 1) % len(self.euclidean_y_steps)
+        elif self.y_driver_spinner.text == 'Random':
+            self.current_y = random.randint(0, 3)
+        elif self.y_driver_spinner.text == 'Forward':
             self.current_y = (self.current_y + 1) % 4
         elif self.y_driver_spinner.text == 'Backward':
             self.current_y = (self.current_y - 1) % 4
@@ -207,6 +413,12 @@ class SequencerApp(App):
                 self.current_y = 0
             elif self.current_y > 3:
                 self.current_y = 3
+        elif self.y_driver_spinner.text == 'Logic Advance':
+            # Only advance Y if X position is at a high-velocity step (velocity > 100)
+            # Get the current X position step index for the current Y row
+            x_step_index = (self.current_y * 4) + self.current_x
+            if self.step_velocities[x_step_index] > 100:
+                self.current_y = (self.current_y + 1) % 4
 
     def visualize_active_position(self):
         # Reset all buttons to inactive state
@@ -255,12 +467,36 @@ class SequencerApp(App):
             cc_value = int((self.current_y / 3) * 127)  # Scale to 0-127
             self.midi.send_cc(y_cc, cc_value)
 
-    def play_note_at_intersection(self, step_index):
-        # Extract note value from button text (which shows note value)
-        note_value = int(self.matrix_steps[step_index].text)
+    def on_tempo_change(self, slider, value):
+        """Handle tempo change"""
+        tempo = int(value)
+        self.tempo_label.text = f'Tempo: {tempo} BPM'
 
-        # Use velocity based on X or Y position
-        velocity = int(80 + (self.current_x * 15))  # Range from 80-125
+        # Update the clock interval based on tempo
+        # For 16th notes: interval = 60 / BPM / 4
+        interval = 60.0 / tempo / 4.0
+        Clock.unschedule(self.tick)
+        Clock.schedule_interval(self.tick, interval)
+
+    def toggle_play_state(self, instance):
+        """Toggle play/pause state"""
+        self.is_playing = not self.is_playing
+        if self.is_playing:
+            instance.text = 'PLAY'
+            instance.background_color = (0.2, 0.8, 0.2, 1)  # Green
+        else:
+            instance.text = 'PAUSE'
+            instance.background_color = (0.8, 0.2, 0.2, 1)  # Red
+
+    def play_note_at_intersection(self, step_index):
+        # Use the step-specific note value, velocity and CC values
+        note_value = self.step_notes[step_index]
+        velocity = self.step_velocities[step_index]
+
+        # Apply parameter lock if any CC values are set for this step
+        if self.step_cc_values[step_index]:
+            for cc_num, cc_val in self.step_cc_values[step_index].items():
+                self.midi.send_cc(cc_num, cc_val)
 
         self.midi.send_note_on(note_value, velocity)
         # Schedule note off after a short duration

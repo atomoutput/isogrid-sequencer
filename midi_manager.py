@@ -32,24 +32,17 @@ class MidiDriver:
                     if device is not None:
                         self.device = device
                         # Open input and output ports
+                        # For sending MIDI data, we need input ports
                         for port_num in range(device.getNumInputPorts()):
                             self.input_port = device.openInputPort(port_num)
                             if self.input_port:
-                                break
-                        for port_num in range(device.getNumOutputPorts()):
-                            self.output_port = device.openOutputPort(port_num)
-                            if self.output_port:
                                 break
 
                         if self.input_port:
                             print("[ANDROID] MIDI Input Port opened successfully")
                         else:
                             print("[ANDROID] Failed to open MIDI Input Port")
-
-                        if self.output_port:
-                            print("[ANDROID] MIDI Output Port opened successfully")
-                        else:
-                            print("[ANDROID] Failed to open MIDI Output Port")
+                            self.is_mock_mode = True
                     else:
                         print("[ANDROID] Failed to open MIDI device")
                         self.is_mock_mode = True
