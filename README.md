@@ -35,8 +35,6 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: kivy/buildozer:latest
     steps:
       - uses: actions/checkout@v4
 
@@ -48,15 +46,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          apt-get update
-          apt-get install -y python3-pip
 
-      - name: Build with Buildozer
+      - name: Setup Buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          workdir: .
+          buildozer_version: master
+        continue-on-error: true
+
+      - name: Alternative build setup
+        if: steps.buildozer.outcome == 'failure'
         run: |
-          cd /github/workspace
-          buildozer android debug
-        env:
-          P4A_LOCAL_DIRECTORY: /github/workspace/.buildozer
+          docker run --rm -v "$PWD":/buildozer kivy/buildozer android debug
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

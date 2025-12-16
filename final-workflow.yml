@@ -1,0 +1,35 @@
+name: Build Android APK
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Setup Buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          workdir: .
+          buildozer_version: master
+        continue-on-error: true
+
+      - name: Alternative build setup
+        if: steps.buildozer.outcome == 'failure'
+        run: |
+          docker run --rm -v "$PWD":/buildozer kivy/buildozer android debug
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: isogrid-sequencer-apk
+          path: bin/*.apk
