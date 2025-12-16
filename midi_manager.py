@@ -67,7 +67,9 @@ class MidiDriver:
                 self.input_port.send(bytearray(data), 0, len(data))
             except Exception as e:
                 print(f"[ERROR] Failed to send MIDI note ON: {str(e)}")
-                self.is_mock_mode = True
+                # Don't switch to mock mode here to prevent constant toggling
+                # Just print the error and continue
+                print(f"[MOCK] Note ON: {note} (velocity: {velocity}, channel: {channel}) - sent as mock due to error")
         else:
             print(f"[MOCK] Note ON: {note} (velocity: {velocity}, channel: {channel})")
 
@@ -81,7 +83,7 @@ class MidiDriver:
                 self.input_port.send(bytearray(data), 0, len(data))
             except Exception as e:
                 print(f"[ERROR] Failed to send MIDI note OFF: {str(e)}")
-                self.is_mock_mode = True
+                print(f"[MOCK] Note OFF: {note}, channel: {channel} - sent as mock due to error")
         else:
             print(f"[MOCK] Note OFF: {note}, channel: {channel}")
 
@@ -95,7 +97,7 @@ class MidiDriver:
                 self.input_port.send(bytearray(data), 0, len(data))
             except Exception as e:
                 print(f"[ERROR] Failed to send MIDI CC: {str(e)}")
-                self.is_mock_mode = True
+                print(f"[MOCK] CC {controller} on ch.{channel}: {value} - sent as mock due to error")
         else:
             print(f"[MOCK] CC {controller} on ch.{channel}: {value}")
 
@@ -109,7 +111,7 @@ class MidiDriver:
                 self.input_port.send(bytearray(data), 0, len(data))
             except Exception as e:
                 print(f"[ERROR] Failed to send MIDI PC: {str(e)}")
-                self.is_mock_mode = True
+                print(f"[MOCK] PC {program} on ch.{channel} - sent as mock due to error")
         else:
             print(f"[MOCK] PC {program} on ch.{channel}")
 
@@ -127,6 +129,6 @@ class MidiDriver:
                 self.input_port.send(bytearray(data), 0, len(data))
             except Exception as e:
                 print(f"[ERROR] Failed to send MIDI Pitch Bend: {str(e)}")
-                self.is_mock_mode = True
+                print(f"[MOCK] PB {value} on ch.{channel} - sent as mock due to error")
         else:
             print(f"[MOCK] PB {value} on ch.{channel}")

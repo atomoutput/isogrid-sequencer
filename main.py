@@ -16,36 +16,25 @@ import random
 from midi_manager import MidiDriver
 
 def euclidean_rhythm(steps, pulses):
-    """Generate an Euclidean rhythm pattern"""
-    if pulses > steps or pulses < 0:
-        return [True] * steps  # Return all active if invalid
+    """Generate an Euclidean rhythm pattern with improved algorithm"""
+    if steps <= 0:
+        return []
+    if pulses >= steps:
+        return [True] * steps
+    if pulses <= 0:
+        return [False] * steps
 
-    pattern = [0] * steps
-    if pulses == 0:
-        return pattern
-
-    counts = [1] * pulses
-    remainders = [steps % pulses] * (steps % pulses) + [0] * (pulses - steps % pulses)
-
-    divisor = steps // pulses
-    j = 0
-    while True:
-        if sum(remainders) == 0:
-            break
-        counts = remainders + counts[:-len(remainders)]
-        remainders = counts[:divisor] * (len(remainders) // divisor) + counts[:len(remainders) % divisor]
-
+    # Bresenham algorithm approach for Euclidean rhythms
     pattern = []
-    for count in counts:
-        pattern.extend([1] + [0] * (count - 1))
+    error = 0
 
-    # Trim to correct length
-    pattern = pattern[:steps]
-    pattern = [bool(x) for x in pattern]
-
-    # Pad with False if needed
-    while len(pattern) < steps:
-        pattern.append(False)
+    for i in range(steps):
+        error += pulses
+        if error >= steps:
+            pattern.append(True)
+            error -= steps
+        else:
+            pattern.append(False)
 
     return pattern
 
@@ -322,27 +311,46 @@ class SequencerApp(App):
 
         # Save button
         def save_and_close(instance):
-            self.step_notes[step_idx] = int(note_spinner.text)
-            self.step_velocities[step_idx] = int(velocity_slider.value)
-            self.step_probabilities[step_idx] = prob_slider.value
+            try:
+                # Bounds checking before updating
+                if 0 <= step_idx < len(self.step_notes):
+                    self.step_notes[step_idx] = int(note_spinner.text)
+                if 0 <= step_idx < len(self.step_velocities):
+                    self.step_velocities[step_idx] = int(velocity_slider.value)
+                if 0 <= step_idx < len(self.step_probabilities):
+                    self.step_probabilities[step_idx] = prob_slider.value
 
-            # Handle CC lock values
-            if cc_num_spinner.text != "None":
-                cc_num = int(cc_num_spinner.text)
-                cc_val = int(cc_val_slider.value)
-                self.step_cc_values[step_idx] = {cc_num: cc_val}
-            else:
-                self.step_cc_values[step_idx] = {}
+                # Handle CC lock values
+                if cc_num_spinner.text != "None":
+                    cc_num = int(cc_num_spinner.text)
+                    cc_val = int(cc_val_slider.value)
+                    if 0 <= step_idx < len(self.step_cc_values):
+                        self.step_cc_values[step_idx] = {cc_num: cc_val}
+                else:
+                    if 0 <= step_idx < len(self.step_cc_values):
+                        self.step_cc_values[step_idx] = {}
 
-            # Handle teleport target
-            if teleport_spinner.text == "None" or teleport_spinner.text == "-1 (None)":
-                self.step_teleport_targets[step_idx] = -1
-            else:
-                self.step_teleport_targets[step_idx] = int(teleport_spinner.text)
+                # Handle teleport target
+                if teleport_spinner.text == "None" or teleport_spinner.text == "-1 (None)":
+                    if 0 <= step_idx < len(self.step_teleport_targets):
+                        self.step_teleport_targets[step_idx] = -1
+                else:
+                    teleport_target = int(teleport_spinner.text)
+                    # Validate teleport target is within valid range
+                    if 0 <= teleport_target < 16 and 0 <= step_idx < len(self.step_teleport_targets):
+                        self.step_teleport_targets[step_idx] = teleport_target
+                    elif 0 <= step_idx < len(self.step_teleport_targets):
+                        self.step_teleport_targets[step_idx] = -1  # Default to no teleport if invalid
 
-            # Update button text to show note value
-            self.matrix_steps[step_idx].text = str(self.step_notes[step_idx])
-            popup.dismiss()
+                # Update button text to show note value
+                if 0 <= step_idx < len(self.matrix_steps):
+                    self.matrix_steps[step_idx].text = str(self.step_notes[step_idx])
+                popup.dismiss()
+            except ValueError as e:
+                print(f"[ERROR] Invalid value in step configuration: {str(e)}")
+                # Could show an error popup here
+            except Exception as e:
+                print(f"[ERROR] Unexpected error saving step configuration: {str(e)}")
 
         save_btn = Button(text='Save', background_normal='', background_color=(0.2, 0.8, 0.2, 1), color=(0, 0, 0, 1), size_hint_x=0.5)
         save_btn.bind(on_press=save_and_close)
@@ -378,13 +386,22 @@ class SequencerApp(App):
         # Calculate the active step index
         active_step_index = (self.current_y * 4) + self.current_x
 
+        # Bounds checking for step index
+        if active_step_index < 0 or active_step_index >= len(self.step_teleport_targets):
+            print(f"[ERROR] Active step index out of bounds: {active_step_index}")
+            return
+
         # Check for wormhole teleportation
         if self.step_teleport_targets[active_step_index] != -1:
             # Teleport to the target step immediately
-            active_step_index = self.step_teleport_targets[active_step_index]
-            # Update current X and Y based on new step index
-            self.current_x = active_step_index % 4
-            self.current_y = active_step_index // 4
+            teleport_target = self.step_teleport_targets[active_step_index]
+            if 0 <= teleport_target < 16:  # Validate teleport target
+                active_step_index = teleport_target
+                # Update current X and Y based on new step index
+                self.current_x = active_step_index % 4
+                self.current_y = active_step_index // 4
+            else:
+                print(f"[WARNING] Invalid teleport target: {teleport_target}")
 
         # Visual feedback for active position
         self.visualize_active_position()
@@ -392,10 +409,10 @@ class SequencerApp(App):
         # Send CC messages based on X/Y positions
         self.send_cc_messages()
 
-        # Play the note at the intersection if step is enabled
-        if self.step_states[active_step_index]:
+        # Bounds checking for step states
+        if active_step_index < len(self.step_states) and self.step_states[active_step_index]:
             # Check probability - if random value is higher than step probability, skip
-            if random.random() <= self.step_probabilities[active_step_index]:
+            if active_step_index < len(self.step_probabilities) and random.random() <= self.step_probabilities[active_step_index]:
                 self.play_note_at_intersection(active_step_index)
 
     def update_x_position(self):
@@ -457,43 +474,58 @@ class SequencerApp(App):
             # Only advance Y if X position is at a high-velocity step (velocity > 100)
             # Get the current X position step index for the current Y row
             x_step_index = (self.current_y * 4) + self.current_x
-            if self.step_velocities[x_step_index] > 100:
+            # Add bounds checking
+            if 0 <= x_step_index < len(self.step_velocities) and self.step_velocities[x_step_index] > 100:
                 self.current_y = (self.current_y + 1) % 4
 
     def visualize_active_position(self):
+        # Ensure we have the right number of matrix steps
+        if len(self.matrix_steps) != 16 or len(self.step_states) != 16:
+            print("[ERROR] Matrix steps and step states have incorrect lengths")
+            return
+
         # Reset all buttons to inactive state
         for i, btn in enumerate(self.matrix_steps):
-            if self.step_states[i]:
-                btn.background_color = (0.15, 0.15, 0.15, 1)  # Dark gray for inactive steps that are enabled
-            else:
-                btn.background_color = (0.1, 0.1, 0.1, 1)  # Even darker for inactive steps
+            if 0 <= i < len(self.step_states):
+                if self.step_states[i]:
+                    btn.background_color = (0.15, 0.15, 0.15, 1)  # Dark gray for inactive steps that are enabled
+                else:
+                    btn.background_color = (0.1, 0.1, 0.1, 1)  # Even darker for inactive steps
+
+        # Calculate and validate active position
+        active_idx = (self.current_y * 4) + self.current_x
+        if not (0 <= active_idx < len(self.matrix_steps)):
+            print(f"[ERROR] Active index out of bounds: {active_idx}")
+            return
 
         # Highlight current position with amber
-        active_idx = (self.current_y * 4) + self.current_x
         self.matrix_steps[active_idx].background_color = (0.8, 0.6, 0.2, 1)  # Amber
 
         # Highlight current row (Y axis) with cyan
         for x in range(4):
             idx = (self.current_y * 4) + x
-            if self.step_states[idx]:
-                if idx != active_idx:  # Don't override the active position color
-                    self.matrix_steps[idx].background_color = (0.2, 0.8, 0.8, 0.7)  # Cyan for active row
-            else:
-                if idx != active_idx:
-                    self.matrix_steps[idx].background_color = (0.1, 0.1, 0.1, 0.5)  # Partially highlighted for row
+            if 0 <= idx < len(self.matrix_steps) and 0 <= idx < len(self.step_states):
+                if self.step_states[idx]:
+                    if idx != active_idx:  # Don't override the active position color
+                        self.matrix_steps[idx].background_color = (0.2, 0.8, 0.8, 0.7)  # Cyan for active row
+                else:
+                    if idx != active_idx:
+                        self.matrix_steps[idx].background_color = (0.1, 0.1, 0.1, 0.5)  # Partially highlighted for row
 
         # Highlight current column (X axis) with cyan
         for y in range(4):
             idx = (y * 4) + self.current_x
-            if self.step_states[idx]:
-                if idx != active_idx and self.matrix_steps[idx].background_color != (0.2, 0.8, 0.8, 0.7):  # Don't override row highlight
-                    self.matrix_steps[idx].background_color = (0.2, 0.8, 0.8, 0.7)  # Cyan for active column
-            else:
-                if idx != active_idx and self.matrix_steps[idx].background_color != (0.1, 0.1, 0.1, 0.5):
-                    self.matrix_steps[idx].background_color = (0.1, 0.1, 0.1, 0.5)  # Partially highlighted for column
+            if 0 <= idx < len(self.matrix_steps) and 0 <= idx < len(self.step_states):
+                if self.step_states[idx]:
+                    if idx != active_idx and self.matrix_steps[idx].background_color != (0.2, 0.8, 0.8, 0.7):  # Don't override row highlight
+                        self.matrix_steps[idx].background_color = (0.2, 0.8, 0.8, 0.7)  # Cyan for active column
+                else:
+                    if idx != active_idx and self.matrix_steps[idx].background_color != (0.1, 0.1, 0.1, 0.5):
+                        self.matrix_steps[idx].background_color = (0.1, 0.1, 0.1, 0.5)  # Partially highlighted for column
 
         # Ensure intersection is amber
-        self.matrix_steps[active_idx].background_color = (0.8, 0.6, 0.2, 1)  # Amber
+        if 0 <= active_idx < len(self.matrix_steps):
+            self.matrix_steps[active_idx].background_color = (0.8, 0.6, 0.2, 1)  # Amber
 
     def send_cc_messages(self):
         # Map X position to selected CC
@@ -508,10 +540,13 @@ class SequencerApp(App):
             'Glide (5)': 5
         }
 
-        x_cc = x_cc_map[self.x_cc_spinner.text]
-        if x_cc is not None:
-            cc_value = int((self.current_x / 3) * 127)  # Scale to 0-127
-            self.midi.send_cc(x_cc, cc_value)
+        # Add bounds checking for spinner text
+        if hasattr(self, 'x_cc_spinner') and self.x_cc_spinner.text in x_cc_map:
+            x_cc = x_cc_map[self.x_cc_spinner.text]
+            if x_cc is not None:
+                # Ensure current_x is not 0 to avoid division by zero when denominator is 3
+                cc_value = int((self.current_x / 3) * 127) if 3 != 0 else 0  # Scale to 0-127
+                self.midi.send_cc(x_cc, cc_value)
 
         # Map Y position to selected CC
         y_cc_map = {
@@ -525,14 +560,17 @@ class SequencerApp(App):
             'Glide (5)': 5
         }
 
-        y_cc = y_cc_map[self.y_cc_spinner.text]
-        if y_cc is not None:
-            cc_value = int((self.current_y / 3) * 127)  # Scale to 0-127
-            self.midi.send_cc(y_cc, cc_value)
+        # Add bounds checking for spinner text
+        if hasattr(self, 'y_cc_spinner') and self.y_cc_spinner.text in y_cc_map:
+            y_cc = y_cc_map[self.y_cc_spinner.text]
+            if y_cc is not None:
+                # Ensure current_y is not 0 to avoid division by zero when denominator is 3
+                cc_value = int((self.current_y / 3) * 127) if 3 != 0 else 0  # Scale to 0-127
+                self.midi.send_cc(y_cc, cc_value)
 
     def on_tempo_change(self, slider, value):
         """Handle tempo change"""
-        tempo = int(value)
+        tempo = max(1, int(value))  # Ensure tempo is at least 1 to avoid division by zero
         self.tempo_label.text = f'Tempo: {tempo} BPM'
 
         # Update the clock interval based on tempo
@@ -552,12 +590,17 @@ class SequencerApp(App):
             instance.background_color = (0.8, 0.2, 0.2, 1)  # Red
 
     def play_note_at_intersection(self, step_index):
+        # Bounds checking for step index
+        if step_index < 0 or step_index >= len(self.step_notes):
+            print(f"[ERROR] Step index out of bounds in play_note_at_intersection: {step_index}")
+            return
+
         # Use the step-specific note value, velocity and CC values
         note_value = self.step_notes[step_index]
         velocity = self.step_velocities[step_index]
 
         # Apply parameter lock if any CC values are set for this step
-        if self.step_cc_values[step_index]:
+        if 0 <= step_index < len(self.step_cc_values) and self.step_cc_values[step_index]:
             for cc_num, cc_val in self.step_cc_values[step_index].items():
                 self.midi.send_cc(cc_num, cc_val)
 
