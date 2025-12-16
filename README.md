@@ -106,3 +106,5 @@ The application will run in mock mode, simulating MIDI output to the console wit
 ## License
 
 MIT License - See LICENSE file for details.
+
+_Last updated: December 2024_
