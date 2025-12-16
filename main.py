@@ -55,45 +55,57 @@ class SequencerApp(App):
         self.midi.setup()
 
         # Main layout with dark background
-        main_layout = BoxLayout(orientation='horizontal', canvas_color=(0.067, 0.067, 0.067, 1))  # #111111
+        main_layout = BoxLayout(orientation='horizontal')
+        # Set background color to dark (Eurorack style)
+        with main_layout.canvas.before:
+            Color(0.067, 0.067, 0.067, 1)  # #111111 dark background
+            self.rect = Rectangle(size=main_layout.size, pos=main_layout.pos)
+            main_layout.bind(size=self._update_rect, pos=self._update_rect)
 
-        # Left panel - Y Driver controls
-        left_panel = BoxLayout(orientation='vertical', size_hint_x=0.2)
+        # Left panel - Y Driver controls (The "Drivers" module)
+        left_panel = BoxLayout(orientation='vertical', size_hint_x=0.2, padding=10, spacing=5)
+        left_panel.add_widget(Label(text='Y-DRIVER', color=(0.2, 0.8, 0.8, 1), font_size=18, bold=True,
+                                  canvas_color=(0.15, 0.15, 0.15, 1)))
+
         self.y_driver_spinner = Spinner(
             text='Forward',
-            values=['Forward', 'Backward', 'Pendulum', 'Random', 'Euclidean'],
+            values=['Forward', 'Backward', 'Pendulum', 'Random', 'Euclidean', 'Logic Advance'],
             background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
+            background_color=(0.2, 0.6, 0.8, 1),  # Cyan blue
+            color=(0, 0, 0, 1)  # Black text for contrast
         )
         self.y_speed_spinner = Spinner(
             text='1/16',
             values=['1/32', '1/16', '1/8', '1/4'],
             background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
+            background_color=(0.2, 0.6, 0.8, 1),  # Cyan blue
+            color=(0, 0, 0, 1)  # Black text for contrast
         )
-        left_panel.add_widget(Label(text='Y-Driver Mode:', color=(0.2, 0.8, 0.8, 1)))
+
+        left_panel.add_widget(Label(text='Mode:', color=(0.5, 0.8, 0.8, 1)))
         left_panel.add_widget(self.y_driver_spinner)
-        left_panel.add_widget(Label(text='Y-Speed:', color=(0.2, 0.8, 0.8, 1)))
+        left_panel.add_widget(Label(text='Speed:', color=(0.5, 0.8, 0.8, 1)))
         left_panel.add_widget(self.y_speed_spinner)
 
-        # Center panel - 4x4 Matrix
+        # Center panel - 4x4 Matrix (The "Matrix" module)
         center_panel = FloatLayout(size_hint_x=0.6)
         matrix_layout = GridLayout(
             cols=4,
             size_hint=(None, None),
-            width=400,
-            height=400,
+            width=min(center_panel.size[0]*0.8, 400),
+            height=min(center_panel.size[1]*0.7, 400),
             pos_hint={'center_x': 0.5, 'center_y': 0.6}
         )
         self.matrix_steps = []
 
         for i in range(16):  # 4x4
             btn = ToggleButton(
-                text=str(i%12 + 36),  # Show note value (starting from C2)
+                text=str(self.step_notes[i]),  # Show note value (starting from C2)
                 background_normal='',
-                background_color=(0.2, 0.2, 0.2, 1),  # Dark gray
+                background_color=(0.1, 0.1, 0.1, 1),  # Darker gray for inactive
                 color=(0.5, 0.8, 0.8, 1),  # Cyan text highlight
-                font_size=14
+                font_size=16,
+                border=(2, 2, 2, 2)  # Add border for Eurorack style
             )
             # Store the step index in the button for later use
             btn.step_idx = i
@@ -109,57 +121,62 @@ class SequencerApp(App):
 
         # Horizontal line for X-axis visualization
         with center_panel.canvas:
-            Color(0.2, 0.5, 0.8, 1)  # Cyan for X-axis
-            self.h_line = Line(points=[], width=2)
+            Color(0.8, 0.6, 0.2, 1)  # Amber for X-axis
+            self.h_line = Line(points=[], width=3)
 
         # Vertical line for Y-axis visualization
         with center_panel.canvas:
-            Color(0.8, 0.5, 0.2, 1)  # Amber for Y-axis
-            self.v_line = Line(points=[], width=2)
+            Color(0.2, 0.8, 0.8, 1)  # Cyan for Y-axis
+            self.v_line = Line(points=[], width=3)
 
-        # Right panel - X Driver controls and MicroFreak mapping
-        right_panel = BoxLayout(orientation='vertical', size_hint_x=0.2)
+        # Right panel - X Driver controls and MicroFreak control center
+        right_panel = BoxLayout(orientation='vertical', size_hint_x=0.2, padding=10, spacing=5)
+
+        # X Driver controls
+        right_panel.add_widget(Label(text='X-DRIVER', color=(0.8, 0.6, 0.2, 1), font_size=18, bold=True))
         self.x_driver_spinner = Spinner(
             text='Forward',
             values=['Forward', 'Backward', 'Pendulum', 'Random', 'Euclidean'],
             background_normal='',
-            background_color=(0.8, 0.6, 0.2, 1)  # Amber
+            background_color=(0.8, 0.6, 0.2, 1),  # Amber
+            color=(0, 0, 0, 1)  # Black text for contrast
         )
         self.x_speed_spinner = Spinner(
             text='1/16',
             values=['1/32', '1/16', '1/8', '1/4'],
             background_normal='',
-            background_color=(0.8, 0.6, 0.2, 1)  # Amber
+            background_color=(0.8, 0.6, 0.2, 1),  # Amber
+            color=(0, 0, 0, 1)  # Black text for contrast
         )
 
-        # Y Driver with Logic Advance option
-        self.y_driver_spinner = Spinner(
-            text='Forward',
-            values=['Forward', 'Backward', 'Pendulum', 'Random', 'Euclidean', 'Logic Advance'],
-            background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
-        )
-        self.y_speed_spinner = Spinner(
-            text='1/16',
-            values=['1/32', '1/16', '1/8', '1/4'],
-            background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
-        )
+        right_panel.add_widget(Label(text='Mode:', color=(0.8, 0.6, 0.2, 1)))
+        right_panel.add_widget(self.x_driver_spinner)
+        right_panel.add_widget(Label(text='Speed:', color=(0.8, 0.6, 0.2, 1)))
+        right_panel.add_widget(self.x_speed_spinner)
 
-        # MicroFreak CC mapping controls
-        self.cc_mapping_label = Label(text='CC Mapping', color=(0.5, 0.8, 0.8, 1))
+        # MicroFreak Control Center
+        right_panel.add_widget(Label(text='MICROFREAK CTRL', color=(0.5, 0.8, 0.8, 1), font_size=18, bold=True))
+
+        # CC mapping controls
         self.x_cc_spinner = Spinner(
             text='None',
             values=['None', 'Cutoff (23)', 'Resonance (83)', 'Osc Type (9)', 'Wave (10)', 'Timbre (12)', 'Shape (13)', 'Glide (5)'],
             background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
+            background_color=(0.2, 0.8, 0.8, 1),  # Cyan
+            color=(0, 0, 0, 1)  # Black text for contrast
         )
         self.y_cc_spinner = Spinner(
             text='None',
             values=['None', 'Cutoff (23)', 'Resonance (83)', 'Osc Type (9)', 'Wave (10)', 'Timbre (12)', 'Shape (13)', 'Glide (5)'],
             background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)  # Cyan
+            background_color=(0.2, 0.8, 0.8, 1),  # Cyan
+            color=(0, 0, 0, 1)  # Black text for contrast
         )
+
+        right_panel.add_widget(Label(text='X to CC:', color=(0.5, 0.8, 0.8, 1)))
+        right_panel.add_widget(self.x_cc_spinner)
+        right_panel.add_widget(Label(text='Y to CC:', color=(0.5, 0.8, 0.8, 1)))
+        right_panel.add_widget(self.y_cc_spinner)
 
         # Performance controls
         self.tempo_label = Label(text='Tempo: 120 BPM', color=(0.5, 0.8, 0.8, 1))
@@ -167,23 +184,10 @@ class SequencerApp(App):
         self.tempo_slider.bind(value=self.on_tempo_change)
 
         # Play controls
-        self.play_button = Button(text='PLAY', background_normal='', background_color=(0.2, 0.8, 0.2, 1))
+        self.play_button = Button(text='PLAY', background_normal='', background_color=(0.2, 0.8, 0.2, 1), color=(0, 0, 0, 1))
         self.play_button.bind(on_press=self.toggle_play_state)
         self.is_playing = True  # Start playing by default
 
-        right_panel.add_widget(Label(text='X-Driver Mode:', color=(0.8, 0.6, 0.2, 1)))
-        right_panel.add_widget(self.x_driver_spinner)
-        right_panel.add_widget(Label(text='X-Speed:', color=(0.8, 0.6, 0.2, 1)))
-        right_panel.add_widget(self.x_speed_spinner)
-        right_panel.add_widget(Label(text='Y-Driver Mode:', color=(0.2, 0.8, 0.8, 1)))
-        right_panel.add_widget(self.y_driver_spinner)
-        right_panel.add_widget(Label(text='Y-Speed:', color=(0.2, 0.8, 0.8, 1)))
-        right_panel.add_widget(self.y_speed_spinner)
-        right_panel.add_widget(self.cc_mapping_label)
-        right_panel.add_widget(Label(text='X to CC:', color=(0.5, 0.8, 0.8, 1)))
-        right_panel.add_widget(self.x_cc_spinner)
-        right_panel.add_widget(Label(text='Y to CC:', color=(0.5, 0.8, 0.8, 1)))
-        right_panel.add_widget(self.y_cc_spinner)
         right_panel.add_widget(self.tempo_label)
         right_panel.add_widget(self.tempo_slider)
         right_panel.add_widget(self.play_button)
@@ -209,7 +213,14 @@ class SequencerApp(App):
         interval = 60.0 / 120.0 / 4.0  # 120 BPM, 16th note interval
         Clock.schedule_interval(self.tick, interval)
 
+        # Add callback to update the rectangle when the layout size changes
+        main_layout.bind(size=self._update_rect, pos=self._update_rect)
         return main_layout
+
+    def _update_rect(self, *args):
+        """Update the background rectangle when layout changes"""
+        self.rect.pos = self.pos
+        self.rect.size = self.size
 
     def on_step_press_with_timing(self, button):
         # Record the time when button was pressed
@@ -237,56 +248,77 @@ class SequencerApp(App):
 
     def show_step_config(self, step_idx):
         """Show the step configuration popup"""
+        # Create a base layout with dark background
+        base_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        with base_layout.canvas.before:
+            Color(0.067, 0.067, 0.067, 1)  # Dark background
+            base_rect = Rectangle(size=base_layout.size, pos=base_layout.pos)
+            base_layout.bind(size=lambda *args: setattr(base_rect, 'size', base_layout.size),
+                           pos=lambda *args: setattr(base_rect, 'pos', base_layout.pos))
+
+        # Inner grid layout for controls
         layout = GridLayout(cols=2, padding=10, spacing=10)
 
         # Note selection
-        layout.add_widget(Label(text='Note:', color=(0.5, 0.8, 0.8, 1)))
+        layout.add_widget(Label(text='Note:', color=(0.5, 0.8, 0.8, 1), size_hint_y=None, height=40))
         note_spinner = Spinner(
             text=str(self.step_notes[step_idx]),
             values=[str(i) for i in range(12, 120)],  # MIDI note range
             background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)
+            background_color=(0.2, 0.6, 0.8, 1),  # Cyan blue
+            color=(0, 0, 0, 1),  # Black text for contrast
+            size_hint_y=None,
+            height=40
         )
         layout.add_widget(note_spinner)
 
         # Velocity slider
-        layout.add_widget(Label(text='Velocity:', color=(0.5, 0.8, 0.8, 1)))
-        velocity_slider = Slider(min=1, max=127, value=self.step_velocities[step_idx])
+        layout.add_widget(Label(text='Velocity:', color=(0.5, 0.8, 0.8, 1), size_hint_y=None, height=40))
+        velocity_slider = Slider(min=1, max=127, value=self.step_velocities[step_idx], size_hint_y=None, height=40)
         layout.add_widget(velocity_slider)
 
         # Probability slider
-        layout.add_widget(Label(text='Probability:', color=(0.5, 0.8, 0.8, 1)))
-        prob_slider = Slider(min=0, max=1, value=self.step_probabilities[step_idx], step=0.01)
+        layout.add_widget(Label(text='Probability:', color=(0.5, 0.8, 0.8, 1), size_hint_y=None, height=40))
+        prob_slider = Slider(min=0, max=1, value=self.step_probabilities[step_idx], step=0.01, size_hint_y=None, height=40)
         layout.add_widget(prob_slider)
 
         # CC Lock controls
-        layout.add_widget(Label(text='CC Lock:', color=(0.5, 0.8, 0.8, 1)))
-        cc_lock_layout = BoxLayout(orientation='vertical')
+        layout.add_widget(Label(text='CC Lock:', color=(0.5, 0.8, 0.8, 1), size_hint_y=None, height=40))
+        cc_lock_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=80)
 
         # CC number input
         cc_num_spinner = Spinner(
             text=str(list(self.step_cc_values[step_idx].keys())[0]) if self.step_cc_values[step_idx] else "None",
             values=["None"] + [str(i) for i in range(128)],  # MIDI CC range
             background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)
+            background_color=(0.2, 0.8, 0.8, 1),  # Cyan
+            color=(0, 0, 0, 1),  # Black text for contrast
+            size_hint_y=None,
+            height=40
         )
         cc_lock_layout.add_widget(cc_num_spinner)
 
         # CC value slider
-        cc_val_slider = Slider(min=0, max=127, value=list(self.step_cc_values[step_idx].values())[0] if self.step_cc_values[step_idx] else 64)
+        cc_val_slider = Slider(min=0, max=127, value=list(self.step_cc_values[step_idx].values())[0] if self.step_cc_values[step_idx] else 64, size_hint_y=None, height=40)
         cc_lock_layout.add_widget(cc_val_slider)
 
         layout.add_widget(cc_lock_layout)
 
         # Teleport target (for wormhole mode)
-        layout.add_widget(Label(text='Teleport to:', color=(0.5, 0.8, 0.8, 1)))
+        layout.add_widget(Label(text='Teleport to:', color=(0.5, 0.8, 0.8, 1), size_hint_y=None, height=40))
         teleport_spinner = Spinner(
             text=str(self.step_teleport_targets[step_idx]) if self.step_teleport_targets[step_idx] != -1 else "None",
             values=["-1 (None)"] + [str(i) for i in range(16)],
             background_normal='',
-            background_color=(0.2, 0.8, 0.8, 1)
+            background_color=(0.2, 0.8, 0.8, 1),  # Cyan
+            color=(0, 0, 0, 1),  # Black text for contrast
+            size_hint_y=None,
+            height=40
         )
         layout.add_widget(teleport_spinner)
+
+        # Button layout
+        button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10)
 
         # Save button
         def save_and_close(instance):
@@ -312,16 +344,24 @@ class SequencerApp(App):
             self.matrix_steps[step_idx].text = str(self.step_notes[step_idx])
             popup.dismiss()
 
-        save_btn = Button(text='Save', background_normal='', background_color=(0.8, 0.6, 0.2, 1))
+        save_btn = Button(text='Save', background_normal='', background_color=(0.2, 0.8, 0.2, 1), color=(0, 0, 0, 1), size_hint_x=0.5)
         save_btn.bind(on_press=save_and_close)
-        layout.add_widget(save_btn)
 
         # Cancel button
-        cancel_btn = Button(text='Cancel', background_normal='', background_color=(0.8, 0.2, 0.2, 1))
+        cancel_btn = Button(text='Cancel', background_normal='', background_color=(0.8, 0.2, 0.2, 1), color=(0, 0, 0, 1), size_hint_x=0.5)
         cancel_btn.bind(on_press=lambda x: popup.dismiss())
-        layout.add_widget(cancel_btn)
 
-        popup = Popup(title=f'Step {step_idx} Configuration', content=layout, size_hint=(0.8, 0.8))
+        button_layout.add_widget(save_btn)
+        button_layout.add_widget(cancel_btn)
+
+        # Add the grid layout and button layout to the base layout
+        base_layout.add_widget(layout)
+        base_layout.add_widget(button_layout)
+
+        popup = Popup(title=f'STEP {step_idx} CONFIGURATION',
+                     content=base_layout,
+                     size_hint=(0.8, 0.8),
+                     background_color=(0.067, 0.067, 0.067, 1))
         popup.open()
 
     def tick(self, dt):
@@ -424,12 +464,35 @@ class SequencerApp(App):
         # Reset all buttons to inactive state
         for i, btn in enumerate(self.matrix_steps):
             if self.step_states[i]:
-                btn.background_color = (0.5, 0.8, 0.5, 1)  # Green for active steps
+                btn.background_color = (0.15, 0.15, 0.15, 1)  # Dark gray for inactive steps that are enabled
             else:
-                btn.background_color = (0.2, 0.2, 0.2, 1)  # Dark gray for inactive
+                btn.background_color = (0.1, 0.1, 0.1, 1)  # Even darker for inactive steps
 
         # Highlight current position with amber
         active_idx = (self.current_y * 4) + self.current_x
+        self.matrix_steps[active_idx].background_color = (0.8, 0.6, 0.2, 1)  # Amber
+
+        # Highlight current row (Y axis) with cyan
+        for x in range(4):
+            idx = (self.current_y * 4) + x
+            if self.step_states[idx]:
+                if idx != active_idx:  # Don't override the active position color
+                    self.matrix_steps[idx].background_color = (0.2, 0.8, 0.8, 0.7)  # Cyan for active row
+            else:
+                if idx != active_idx:
+                    self.matrix_steps[idx].background_color = (0.1, 0.1, 0.1, 0.5)  # Partially highlighted for row
+
+        # Highlight current column (X axis) with cyan
+        for y in range(4):
+            idx = (y * 4) + self.current_x
+            if self.step_states[idx]:
+                if idx != active_idx and self.matrix_steps[idx].background_color != (0.2, 0.8, 0.8, 0.7):  # Don't override row highlight
+                    self.matrix_steps[idx].background_color = (0.2, 0.8, 0.8, 0.7)  # Cyan for active column
+            else:
+                if idx != active_idx and self.matrix_steps[idx].background_color != (0.1, 0.1, 0.1, 0.5):
+                    self.matrix_steps[idx].background_color = (0.1, 0.1, 0.1, 0.5)  # Partially highlighted for column
+
+        # Ensure intersection is amber
         self.matrix_steps[active_idx].background_color = (0.8, 0.6, 0.2, 1)  # Amber
 
     def send_cc_messages(self):
