@@ -3,20 +3,31 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: kivy/buildozer:latest
     steps:
       - uses: actions/checkout@v4
 
-      # Setup Buildozer
-      - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          workdir: .
-          buildozer_version: master
+          python-version: '3.8'
 
-      # Upload the APK to GitHub Actions page
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          apt-get update
+          apt-get install -y python3-pip
+
+      - name: Build with Buildozer
+        run: |
+          cd /github/workspace
+          buildozer android debug
+        env:
+          P4A_LOCAL_DIRECTORY: /github/workspace/.buildozer
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: package
-          path: ${{ steps.buildozer.outputs.filename }}
+          name: isogrid-sequencer-apk
+          path: bin/*.apk
