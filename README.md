@@ -17,52 +17,29 @@ The application consists of:
 - `main.py`: The Kivy UI and sequencer logic
 - `midi_manager.py`: Handles MIDI communication with Android native MIDI or mock simulation
 - `buildozer.spec`: Configuration for building Android APK
-- `.github/workflows/build.yml`: CI/CD pipeline for automated APK building
+- `github-actions-workflow.yml`: GitHub Actions configuration (see Setup below)
 
-## Development Workflow
+## Setup for GitHub Actions (APK Building)
 
-1. **Test locally in Termux:**
-   ```bash
-   export DISPLAY=:0
-   python main.py
-   ```
+The project is configured for automated APK building via GitHub Actions, however there's a special requirement for adding the workflow file:
 
-2. **Push to GitHub to trigger APK build:**
-   ```bash
-   git add .
-   git commit -m "Your changes"
-   git push origin main
-   ```
+1. After cloning this repository, you need to manually add the GitHub Actions workflow file to enable automated building
+2. Go to your repository on GitHub: `https://github.com/atomoutput/isogrid-sequencer`
+3. Navigate to `.github/workflows/` directory (create it if it doesn't exist)
+4. Create a new file named `build.yml`
+5. Copy the content from `github-actions-workflow.yml` in this repository into that file
+6. Commit the file directly to your repository
 
-3. **Download APK from GitHub Actions workflow**
-
-## MicroFreak Integration
-
-The sequencer is optimized for the Arturia MicroFreak with predefined CC mappings:
-- Cutoff: CC 23
-- Resonance: CC 83
-- Oscillator Type: CC 9
-- Wave: CC 10
-- Timbre: CC 12
-- Shape: CC 13
-- Glide: CC 5
-
-## Modes
-
-### Driver Modes
-- Forward: Sequential progression
-- Backward: Reverse progression
-- Pendulum: Alternating direction
-- Random: Random step selection
-- Euclidean: Euclidean rhythm pattern
-
-### Special Features
-- Parameter Lock: Lock specific CC values to individual steps
-- Wormhole Mode: Teleport between steps for glitchy effects
+Once the workflow file is added, GitHub Actions will automatically build the APK for each push to the repository.
 
 ## Building for Android
 
-The project uses Buildozer to package the application for Android. The build process runs automatically via GitHub Actions when changes are pushed to the repository.
+After setting up the GitHub Actions workflow, the project uses Buildozer to package the application for Android. The build process runs automatically via GitHub Actions when changes are pushed to the repository.
+
+To build locally, install Buildozer and run:
+```bash
+buildozer android debug
+```
 
 ## License
 
